@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
 using Lib9c.Renderers;
+using Libplanet.Action.State;
 using Libplanet.Crypto;
 using Libplanet.Types.Assets;
 using LruCacheNet;
@@ -52,7 +53,7 @@ namespace Nekoyume.Blockchain
         protected static AgentState GetAgentState<T>(ActionEvaluation<T> evaluation) where T : ActionBase
         {
             var agentAddress = States.Instance.AgentState.address;
-            return StateGetter.GetAgentState(agentAddress, evaluation.OutputState);
+            return StateGetter.GetAgentState(evaluation.OutputState, agentAddress);
         }
 
         protected GoldBalanceState GetGoldBalanceState<T>(ActionEvaluation<T> evaluation)
@@ -65,9 +66,9 @@ namespace Nekoyume.Blockchain
             }
 
             return StateGetter.GetGoldBalanceState(
+                evaluation.OutputState,
                 agentAddress,
-                GoldCurrency,
-                evaluation.OutputState);
+                GoldCurrency);
         }
 
         // NOTE: The deposit in returned tuple is get from the IAgent not evaluation.OutputState.
@@ -82,7 +83,7 @@ namespace Nekoyume.Blockchain
         {
             var agentAddr = States.Instance.AgentState.address;
             var stakeAddr = StakeStateV2.DeriveAddress(agentAddr);
-            if (!StateGetter.TryGetStakeStateV2(agentAddr, evaluation.OutputState, out var stakeStateV2))
+            if (!StateGetter.TryGetStakeStateV2(evaluation.OutputState, agentAddr,out var stakeStateV2))
             {
                 return (stakeAddr, null, new FungibleAssetValue(), 0, null, null);
             }
@@ -103,7 +104,8 @@ namespace Nekoyume.Blockchain
                     Addresses.GetSheetAddress(
                         stakeStateV2.Contract.StakeRegularRewardSheetTableName),
                 };
-                var sheetStates = await agent.GetStateBulkAsync(sheetAddrArr);
+                var sheetStates = await agent.GetStateBulkAsync(
+                    ReservedAddresses.LegacyAccount, sheetAddrArr);
                 var stakeRegularFixedRewardSheet = new StakeRegularFixedRewardSheet();
                 stakeRegularFixedRewardSheet.Set(
                     sheetStates[sheetAddrArr[0]].ToDotnetString());
@@ -132,8 +134,10 @@ namespace Nekoyume.Blockchain
         {
             var avatarAddress = States.Instance.CurrentAvatarState.address;
             var buffStateAddress = Addresses.GetSkillStateAddressFromAvatarAddress(avatarAddress);
-            if (StateGetter.GetState(buffStateAddress, evaluation.OutputState) is
-                Bencodex.Types.List serialized)
+            if (StateGetter.GetState(
+                    evaluation.OutputState,
+                    ReservedAddresses.LegacyAccount,
+                    buffStateAddress) is Bencodex.Types.List serialized)
             {
                 var state = new CrystalRandomSkillState(buffStateAddress, serialized);
                 return state;
@@ -206,16 +210,14 @@ namespace Nekoyume.Blockchain
 
             var avatarAddress = States.Instance.AgentState.avatarAddresses[index];
             var state =
-                Game.Game.instance.Agent.GetAvatarStatesAsync(new[]
-                {
-                    avatarAddress
-                }, evaluation.OutputState).Result[avatarAddress];
+                Game.Game.instance.Agent.GetAvatarStatesAsync(
+                    evaluation.OutputState,
+                    new[] { avatarAddress }).Result[avatarAddress];
 
             await UpdateAvatarState(state, index);
         }
 
-        protected async UniTask UpdateCurrentAvatarStateAsync<T>(
-            ActionEvaluation<T> evaluation)
+        protected async UniTask UpdateCurrentAvatarStateAsync<T>(ActionEvaluation<T> evaluation)
             where T : ActionBase
         {
             var agentAddress = States.Instance.AgentState.address;
@@ -223,8 +225,9 @@ namespace Nekoyume.Blockchain
             try
             {
                 await UpdateCurrentAvatarStateAsync(
-                    States.Instance.CurrentAvatarState
-                        .UpdateAvatarStateV2(avatarAddress, evaluation.OutputState));
+                    Game.Game.instance.Agent.GetAvatarStatesAsync(
+                        evaluation.OutputState,
+                        new [] { avatarAddress }).Result[avatarAddress]);
             }
             catch (Exception e)
             {
@@ -259,7 +262,7 @@ namespace Nekoyume.Blockchain
 
             var avatarAddr = states.CurrentAvatarState.address;
             var inventoryAddr = avatarAddr.Derive(LegacyInventoryKey);
-            var inventory = StateGetter.GetInventory(inventoryAddr, eval.OutputState);
+            var inventory = StateGetter.GetInventory(eval.OutputState, inventoryAddr);
             var avatarState = states.CurrentAvatarState;
             avatarState.inventory = inventory;
             avatarState = LocalLayer.Instance.ModifyInventoryOnly(avatarState);
@@ -327,9 +330,9 @@ namespace Nekoyume.Blockchain
             try
             {
                 var crystal = StateGetter.GetBalance(
+                    evaluation.OutputState,
                     evaluation.Signer,
-                    CrystalCalculator.CRYSTAL,
-                    evaluation.OutputState);
+                    CrystalCalculator.CRYSTAL);
                 States.Instance.SetCrystalBalance(crystal);
             }
             catch (BalanceDoesNotExistsException)
@@ -413,7 +416,14 @@ namespace Nekoyume.Blockchain
 
             if (Game.Game.instance.CachedStates.ContainsKey(state.address))
             {
-                Game.Game.instance.CachedStates[state.address] = state.Serialize();
+                try
+                {
+                    Game.Game.instance.CachedStates[state.address] = state.Serialize();
+                }
+                catch (NotSupportedException)
+                {
+                    Game.Game.instance.CachedStates[state.address] = state.SerializeList();
+                }
             }
         }
 
@@ -428,9 +438,9 @@ namespace Nekoyume.Blockchain
             }
 
             var itemSlotState = StateGetter.GetItemSlotState(
+                evaluation.OutputState,
                 avatarState.address,
-                battleType,
-                evaluation.OutputState);
+                battleType);
             States.Instance.UpdateItemSlotState(itemSlotState);
         }
 
@@ -445,9 +455,9 @@ namespace Nekoyume.Blockchain
             }
 
             var runeSlotState = StateGetter.GetRuneSlotState(
+                evaluation.OutputState,
                 avatarState.address,
-                battleType,
-                evaluation.OutputState);
+                battleType);
             States.Instance.UpdateRuneSlotState(runeSlotState);
         }
     }

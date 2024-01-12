@@ -817,16 +817,6 @@ namespace Nekoyume.UI
                         SharedModel.WorldID,
                         SharedModel.StageID + stageIdOffset)
                     .StartAsCoroutine(),
-                StageType.Mimisbrunnr => Game.Game.instance.ActionManager
-                    .MimisbrunnrBattle(
-                        costumes,
-                        equipments,
-                        new List<Consumable>(),
-                        runeSlotInfos,
-                        SharedModel.WorldID,
-                        SharedModel.StageID + stageIdOffset,
-                        1)
-                    .StartAsCoroutine(),
                 StageType.EventDungeon => Game.Game.instance.ActionManager
                     .EventDungeonBattle(
                         RxProps.EventScheduleRowForDungeon.Value.Id,
